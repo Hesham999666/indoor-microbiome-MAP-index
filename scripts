@@ -1,0 +1,445 @@
+scripts/.gitkeep
+############################### Character table ##########################
+
+sleep.data <- read_excel("Metadata.xlsx")
+
+library(table1)
+library(dplyr)
+library(labelled)
+
+# Clean and recode the variables
+sleep.data <- sleep.data %>%
+  mutate(
+    gender = tolower(gender),
+    gender = case_when(
+      gender == "male" ~ "Male",
+      gender == "female" ~ "Female",
+      TRUE ~ NA_character_
+    ),
+    gender = factor(gender, levels = c("Male", "Female")),
+    map_0.5 = ifelse(map > 0.5, "High", "Low"),
+    map_0.7 = ifelse(map > 0.7, "High", "Low"),
+    map_0.5 = factor(map_0.5),
+    map_0.7 = factor(map_0.7),
+    sample_center = factor(sample_center),
+    window_open_night = factor(window_open_night),
+    pet_in_bedroom = factor(pet_in_bedroom),
+    no_people = factor(no_people),
+    season_2 = factor(season_2),
+    cleaning_frequency = factor(cleaning_frequency)
+  )
+
+# Label variables for display
+label(sleep.data$map) <- "MAP Index"
+label(sleep.data$map_0.5) <- "MAP ≥ 0.5 Cutoff"
+label(sleep.data$map_0.7) <- "MAP ≥ 0.7 Cutoff"
+label(sleep.data$age) <- "Age"
+label(sleep.data$bmi) <- "BMI"
+label(sleep.data$sample_center) <- "Sample Center"
+label(sleep.data$window_open_night) <- "Window Open at Night"
+label(sleep.data$pet_in_bedroom) <- "Pet in Bedroom"
+label(sleep.data$no_people) <- "No. of People in Household"
+label(sleep.data$house_age) <- "House Age (years)"
+label(sleep.data$season_2) <- "Sampling Season"
+label(sleep.data$cleaning_frequency) <- "Cleaning Frequency"
+
+# Rendering functions
+my.render.cont <- function(x) {
+  with(stats.apply.rounding(stats.default(x), digits=1), 
+       c("", "Mean (SD)" = sprintf("%s (+/- %s)", MEAN, SD)))
+}
+
+my.render.cat <- function(x) {
+  c("", sapply(stats.default(x), function(y) 
+    with(y, sprintf("%d (%0.0f%%)", FREQ, PCT))))
+}
+
+# Character table stratified by gender
+char.table <- table1(~ map + map_0.5 + map_0.7 + age + bmi + sample_center + 
+                       window_open_night + pet_in_bedroom + no_people + 
+                       house_age + season_2 + cleaning_frequency |
+                       gender,
+                     data = sleep.data,
+                     render.continuous = my.render.cont,
+                     render.categorical = my.render.cat,
+                     overall = "Total",
+                     topclass = "Rtable1-grid")
+
+# View the table
+char.table
+
+
+############################### Association with Bacterial Diversity and Load ##########################
+
+# Load required package
+library(readxl)
+
+# Load data
+sleep.data.map <- read_excel("Metadata.xlsx")
+
+# Check for missing and format factors
+sleep.data.map <- sleep.data.map %>%
+  mutate(
+    sample_center = factor(sample_center),
+    window_open_night = factor(window_open_night),
+    pet_in_bedroom = factor(pet_in_bedroom),
+    no_people = factor(no_people),
+    season_2 = factor(season_2),
+    cleaning_frequency = factor(cleaning_frequency)
+  )
+
+# -------------------- Shannon Diversity --------------------
+
+# Step 1: Calculate IQR
+IQR_shannon <- IQR(sleep.data.map$diversity_shannon, na.rm = TRUE)
+
+# Step 2: Scale by IQR
+sleep.data.map$shannon_iqr <- sleep.data.map$diversity_shannon / IQR_shannon
+
+# Step 3: Linear model with adjustment
+map.shannon <- lm(map ~ shannon_iqr + sample_center + window_open_night + 
+                    pet_in_bedroom + no_people + house_age + 
+                    season_2 + cleaning_frequency,
+                  data = sleep.data.map)
+
+# Step 4: Summary
+summary(map.shannon)
+confint(map.shannon)
+
+
+# -------------------- Bacterial Load (rcopies_m2) --------------------
+
+IQR_rcopies <- IQR(sleep.data.map$rcopies_m2, na.rm = TRUE)
+sleep.data.map$rcopies_iqr <- sleep.data.map$rcopies_m2 / IQR_rcopies
+
+map.rcopies <- lm(map ~ rcopies_iqr + sample_center + window_open_night + 
+                    pet_in_bedroom + no_people + house_age + 
+                    season_2 + cleaning_frequency,
+                  data = sleep.data.map)
+
+summary(map.rcopies)
+confint(map.rcopies)
+
+
+# -------------------- Endotoxin Load (eu_m2) --------------------
+
+IQR_eu <- IQR(sleep.data.map$eu_m2, na.rm = TRUE)
+sleep.data.map$eu_iqr <- sleep.data.map$eu_m2 / IQR_eu
+
+map.eu <- lm(map ~ eu_iqr + sample_center + window_open_night + 
+               pet_in_bedroom + no_people + house_age + 
+               season_2 + cleaning_frequency,
+             data = sleep.data.map)
+
+summary(map.eu)
+confint(map.eu)
+
+############################### Figure 1 - box plots ##########################
+
+library(ggplot2)
+library(ggpubr)
+library(patchwork)
+
+# Create MAP groupings
+sleep.data$map_group_0.5 <- ifelse(sleep.data$map > 0.5, "High", "Low")
+sleep.data$map_group_0.7 <- ifelse(sleep.data$map > 0.7, "High", "Low")
+
+# ---------- Shannon Diversity ----------
+p1 <- ggplot(sleep.data, aes(x = map_group_0.5, y = diversity_shannon, fill = map_group_0.5)) +
+  geom_boxplot() +
+  stat_compare_means(method = "wilcox.test", label.y = max(sleep.data$diversity_shannon, na.rm = TRUE) + 0.2) +
+  scale_fill_manual(values = c("Low" = "#F8766D", "High" = "#00BFC4")) +
+  labs(title = "A. Shannon Diversity (MAP ≥ 0.5)", x = "MAP Group", y = "Shannon Diversity Index") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+p2 <- ggplot(sleep.data, aes(x = map_group_0.7, y = diversity_shannon, fill = map_group_0.7)) +
+  geom_boxplot() +
+  stat_compare_means(method = "wilcox.test", label.y = max(sleep.data$diversity_shannon, na.rm = TRUE) + 0.2) +
+  scale_fill_manual(values = c("Low" = "#F8766D", "High" = "#00BFC4")) +
+  labs(title = "B. Shannon Diversity (MAP ≥ 0.7)", x = "MAP Group", y = "Shannon Diversity Index") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# ---------- Bacterial Load ----------
+sleep.data$rcopies_m2[sleep.data$rcopies_m2 == 0] <- 1
+
+p3 <- ggplot(sleep.data, aes(x = map_group_0.5, y = rcopies_m2, fill = map_group_0.5)) +
+  geom_boxplot() +
+  scale_y_log10() +
+  stat_compare_means(method = "wilcox.test") +
+  scale_fill_manual(values = c("Low" = "#F8766D", "High" = "#00BFC4")) +
+  labs(title = "C. Bacterial Load (MAP ≥ 0.5)", x = "MAP Group", y = expression("rRNA Gene Copies / m"^2*" (log10)")) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+p4 <- ggplot(sleep.data, aes(x = map_group_0.7, y = rcopies_m2, fill = map_group_0.7)) +
+  geom_boxplot() +
+  scale_y_log10() +
+  stat_compare_means(method = "wilcox.test") +
+  scale_fill_manual(values = c("Low" = "#F8766D", "High" = "#00BFC4")) +
+  labs(title = "D. Bacterial Load (MAP ≥ 0.7)", x = "MAP Group", y = expression("rRNA Gene Copies / m"^2*" (log10)")) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# ---------- Endotoxin Load ----------
+sleep.data$eu_m2[sleep.data$eu_m2 == 0] <- 1
+
+p5 <- ggplot(sleep.data, aes(x = map_group_0.5, y = eu_m2, fill = map_group_0.5)) +
+  geom_boxplot() +
+  scale_y_log10() +
+  stat_compare_means(method = "wilcox.test") +
+  scale_fill_manual(values = c("Low" = "#F8766D", "High" = "#00BFC4")) +
+  labs(title = "E. Endotoxin Load (MAP ≥ 0.5)", x = "MAP Group", y = expression("Endotoxin Units / m"^2*" (log10)")) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+p6 <- ggplot(sleep.data, aes(x = map_group_0.7, y = eu_m2, fill = map_group_0.7)) +
+  geom_boxplot() +
+  scale_y_log10() +
+  stat_compare_means(method = "wilcox.test") +
+  scale_fill_manual(values = c("Low" = "#F8766D", "High" = "#00BFC4")) +
+  labs(title = "F. Endotoxin Load (MAP ≥ 0.7)", x = "MAP Group", y = expression("Endotoxin Units / m"^2*" (log10)")) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# ---------- Combine All Plots ----------
+
+final.plot <- ggarrange(p1, p2, p3, p4, p5, p6,
+                        ncol = 2, nrow = 3,
+                        labels = NULL,
+                        align = "v")
+
+# Save the plot
+
+ggsave("Figure 1.jpeg", final.plot, width = 12, height = 15, dpi = 300)
+
+
+############################### Figure 2 - PCoA  ##########################
+
+
+# Load required packages
+library(phyloseq)
+library(vegan)
+library(ape)
+library(coda.base)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(tibble)
+
+# ---------- 1. Load Phyloseq object ----------
+bacteria.map <- readRDS("Indoor_bacteria_Metadata_MAP_Index.rds")
+
+# ---------- 2. Create MAP groups ----------
+sample_data(bacteria.map)$map_group_0.5 <- ifelse(sample_data(bacteria.map)$map > 0.5, "High", "Low")
+sample_data(bacteria.map)$map_group_0.7 <- ifelse(sample_data(bacteria.map)$map > 0.7, "High", "Low")
+
+# ---------- 3. Helper: Clean + compute ordination ----------
+compute_pcoa_df <- function(ps_obj, map_group_label) {
+  # Ensure group column exists
+  if (!(map_group_label %in% colnames(sample_data(ps_obj)))) {
+    stop(paste("Column", map_group_label, "not found in sample_data"))
+  }
+  
+  # Extract group values and their sample names
+  group_vals <- sample_data(ps_obj)[[map_group_label]]
+  sample_ids <- sample_names(ps_obj)
+  
+  # Keep only samples with "High" or "Low"
+  keep_samples <- sample_ids[group_vals %in% c("High", "Low")]
+  
+  # Subset phyloseq object
+  ps_sub <- prune_samples(keep_samples, ps_obj)
+  
+  # Filter low abundance taxa
+  otu <- otu_table(ps_sub)
+  high_abund_idx <- colSums(otu) / sum(otu) >= 0.0001
+  ps_sub <- prune_taxa(taxa_names(ps_sub)[high_abund_idx], ps_sub)
+  
+  # Aitchison distance
+  otu_pseudo <- otu_table(ps_sub) + 0.001
+  dist_aitchison <- coda.base::dist(otu_pseudo, method = "aitchison")
+  
+  # ANOSIM
+  group_vector <- sample_data(ps_sub)[[map_group_label]]
+  anosim_result <- anosim(dist_aitchison, group_vector, permutations = 999)
+  
+  # PCoA
+  pcoa_result <- ape::pcoa(dist_aitchison)
+  df_plot <- data.frame(
+    Axis.1 = pcoa_result$vectors[, 1] * 100,
+    Axis.2 = pcoa_result$vectors[, 2] * 100,
+    group = group_vector
+  )
+  
+  list(df = as_tibble(df_plot), anosim = anosim_result, pcoa = pcoa_result)
+}
+
+sample_data(bacteria.map)$map_group_0.5 <- ifelse(sample_data(bacteria.map)$map > 0.5, "High", "Low")
+sample_data(bacteria.map)$map_group_0.7 <- ifelse(sample_data(bacteria.map)$map > 0.7, "High", "Low")
+
+
+
+# ---------- 4. Compute ordinations ----------
+res_0.5 <- compute_pcoa_df(bacteria.map, "map_group_0.5")
+res_0.7 <- compute_pcoa_df(bacteria.map, "map_group_0.7")
+
+
+# ---------- 5. Convex hull helper ----------
+get_hulls <- function(df, group_col, xcol = "Axis.2", ycol = "Axis.1") {
+  df %>%
+    group_by(.data[[group_col]]) %>%
+    slice(chull(.data[[xcol]], .data[[ycol]]))
+}
+
+# ---------- 6. Create plots ----------
+plot_pcoa <- function(df, group_col, anosim_obj, title_text) {
+  var_expl <- round(100 * anosim_obj$dis.rank / sum(anosim_obj$dis.rank), 1)
+  hulls <- get_hulls(df, group_col)
+  
+  ggplot(df, aes_string(x = "Axis.2", y = "Axis.1", color = group_col)) +
+    geom_polygon(data = hulls, aes_string(fill = group_col), alpha = 0.2, color = NA, show.legend = FALSE) +
+    geom_point(size = 1.5) +
+    labs(
+      x = "Axis.2 (%)",
+      y = "Axis.1 (%)",
+      title = title_text,
+      subtitle = paste0("ANOSIM R = ", round(anosim_obj$statistic, 3),
+                        ", p = ", signif(anosim_obj$signif, 3))
+    ) +
+    theme_minimal() +
+    theme(legend.position = "right")
+}
+
+g1 <- plot_pcoa(res_0.5$df, "group", res_0.5$anosim, "MAP Cutoff ≥ 0.5")
+g2 <- plot_pcoa(res_0.7$df, "group", res_0.7$anosim, "MAP Cutoff ≥ 0.7")
+
+# ---------- 7. Arrange and export ----------
+final_plot <- ggarrange(g1, g2, ncol = 1, nrow = 2, labels = c("A", "B"))
+
+ggsave("Figure 2.jpeg", final_plot, width = 10, height = 12, dpi = 300)
+
+
+############################### Figure 3 - Heatmap  ##########################
+
+# upload phyloseq file
+
+bacteria.map <- readRDS ("Indoor_bacteria_Metadata_MAP_Index.rds")  
+
+# extract otutable 
+
+otutable <- data.frame(OTU = colnames(phyloseq::otu_table(bacteria.map)@.Data),
+                       t(phyloseq::otu_table(bacteria.map)@.Data), phyloseq::tax_table(bacteria.map)@.Data,check.names = FALSE)
+
+# I removed   Species = FALSE, from the above code Because  I assign my ASVs to species level. 
+
+ASV_df <- data.frame(ASVID = paste("ASV",1:dim(otutable)[1],sep=""), row.names(otutable))
+row.names(otutable) <- paste("ASV",1:dim(otutable)[1],sep="")
+otutable$OTU <- paste("ASV",1:dim(otutable)[1],sep="")
+
+# read your metedate file 
+
+metadata <-  read_excel("Metadata.xlsx")
+
+# Add MAP group labels to metadata
+metadata$map_group_0.5 <- ifelse(metadata$map > 0.5, "High", "Low")
+metadata$map_group_0.7 <- ifelse(metadata$map > 0.7, "High", "Low")
+
+# combine otu table and metadate 
+
+ampvis <- amp_load(otutable = otutable, metadata = metadata)
+
+
+# Heatmap based on MAP cutoff 0.5
+map_heat_0.5 <- amp_heatmap(ampvis,
+                            group_by = "map_group_0.5",
+                            tax_aggregate = "Genus",
+                            tax_show = 20,
+                            plot_colorscale = "sqrt",
+                            plot_values = TRUE,
+                            min_abundance = 0.1,
+                            measure = "mean") +
+  theme(axis.text.y = element_text(size = 12),
+        legend.position = "right",
+        axis.text.x = element_text(angle = 0, hjust = 0))
+
+# Heatmap based on MAP cutoff 0.7
+map_heat_0.7 <- amp_heatmap(ampvis,
+                            group_by = "map_group_0.7",
+                            tax_aggregate = "Genus",
+                            tax_show = 20,
+                            plot_colorscale = "sqrt",
+                            plot_values = TRUE,
+                            min_abundance = 0.1,
+                            measure = "mean") +
+  theme(axis.text.y = element_text(size = 12),
+        legend.position = "right",
+        axis.text.x = element_text(angle = 0, hjust = 0))
+
+
+map.heatmap  <- ggarrange(map_heat_0.7,map_heat_0.5, ncol = 2, nrow = 1,
+                          labels = c("A","B"),  align = "v" ,  widths =  c(1,1))
+
+ggsave("Figure 3.jpeg", map.heatmap, width = 10, height = 12, dpi = 300)
+
+
+
+############################### Genus-Level Association with Continuous MAP Index  #########################
+
+run_clr_lm_map_adjusted <- function(genera_data, metadata, outcome_var = "map",
+                                    adjust_vars = c("sample_center", "window_open_night", "pet_in_bedroom",
+                                                    "no_people", "house_age", "season_2", "cleaning_frequency")) {
+  library(dplyr)
+  library(compositions)
+  library(broom)
+  
+  # Join metadata and genus data
+  df <- inner_join(metadata, genera_data, by = "sample_id") %>%
+    filter(!is.na(.data[[outcome_var]]))
+  
+  # Keep only numeric genus columns
+  genera_only <- df %>%
+    select(-sample_id, -all_of(outcome_var), -all_of(adjust_vars)) %>%
+    select(where(is.numeric))
+  
+  # CLR transform + IQR scale
+  genera_clr <- as.data.frame(clr(genera_only + 1e-6))
+  genera_scaled <- as.data.frame(scale(genera_clr, center = FALSE, scale = apply(genera_clr, 2, IQR)))
+  
+  # Final modeling dataframe
+  full_data <- bind_cols(df %>% select(all_of(c(outcome_var, adjust_vars))), genera_scaled)
+  
+  # Run model per genus
+  results <- lapply(names(genera_scaled), function(genus) {
+    formula <- as.formula(paste(outcome_var, "~", genus, "+", paste(adjust_vars, collapse = " + ")))
+    model <- lm(formula, data = full_data)
+    tidy(model, conf.int = TRUE)[2, ] %>% mutate(Genus = genus)
+  }) %>% bind_rows()
+  
+  return(results)
+}
+
+
+# Load data
+relative.genera <- read_excel("relative_abudunce_bacterial_genera.xlsx")
+sleep.data <- read_excel("Metadata.xlsx") %>%
+  mutate(map = as.numeric(map))
+
+# Run the function
+map_results_adj <- run_clr_lm_map_adjusted(
+  genera_data = relative.genera,
+  metadata = sleep.data,
+  outcome_var = "map"
+)
+
+# Filter significant associations
+map_results_adj.sig <- map_results_adj %>% filter(p.value < 0.05)
+
+# Save results
+write.csv(map_results_adj.sig,
+          "association_CLR_IQR_adjusted_map_index.csv",
+          row.names = FALSE)
+
+
+
