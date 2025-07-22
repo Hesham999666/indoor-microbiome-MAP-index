@@ -2,7 +2,7 @@
 
 This repository contains data, code, and figures supporting the manuscript:
 
-**"Enrichment of Anaerobic Airborne Bacteria in Bedrooms of Individuals with Elevated Risk of Sleep Apnea "**
+**"Airborne Microbial Signatures of Sleep Apnea Risk: Enrichment of Human-Associated and Loss of Environmental Taxa"**
 
 ---
 
